@@ -1,12 +1,20 @@
-# Oriented R-CNN — single-modality baseline on RGB
+# RGB baseline — single-stream with self-contained RotatedRetinaHead
 _base_ = [
     '../_base_/datasets/atrumod.py',
     '../_base_/schedules/schedule_1x.py',
     '../_base_/default_runtime.py',
 ]
 
+num_classes = 11
+angle_version = 'le135'
+
 model = dict(
-    type='mmrotate.OrientedRCNN',
+    type='SingleStreamDetector',
+    data_preprocessor=dict(
+        type='mmdet.DetDataPreprocessor',
+        mean=[123.675, 116.28, 103.53],
+        std=[58.395, 57.12, 57.375],
+        pad_size_divisor=32),
     backbone=dict(
         type='mmdet.ResNet',
         depth=50,
@@ -21,92 +29,32 @@ model = dict(
         type='mmdet.FPN',
         in_channels=[256, 512, 1024, 2048],
         out_channels=256,
+        start_level=0,
+        add_extra_convs='on_input',
         num_outs=5),
-    rpn_head=dict(
-        type='mmrotate.RotatedRPNHead',
+    bbox_head=dict(
+        type='RotatedRetinaHead',
+        num_classes=num_classes,
         in_channels=256,
+        stacked_convs=4,
         feat_channels=256,
-        version='le135',
+        anchor_generator=dict(
+            strides=[8, 16, 32, 64, 128],
+            scales=[4],
+            ratios=[1.0],
+            angles=[0]),
         bbox_coder=dict(
-            type='mmrotate.DeltaXYWHAOBBoxCoder',
-            target_means=[.0, .0, .0, .0, .0],
-            target_stds=[1.0, 1.0, 1.0, 1.0, 1.0]),
-        loss_cls=dict(type='mmdet.CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-        loss_bbox=dict(type='mmdet.SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-    roi_head=dict(
-        type='mmrotate.RotatedStandardRoIHead',
-        bbox_roi_extractor=dict(
-            type='mmrotate.RotatedSingleRoIExtractor',
-            roi_layer=dict(type='RoIAlignRotated', out_size=7, sample_num=2),
-            out_channels=256,
-            featmap_strides=[4, 8, 16, 32]),
-        bbox_head=dict(
-            type='mmrotate.RotatedShared2FCBBoxHead',
-            in_channels=256,
-            fc_out_channels=1024,
-            roi_feat_size=7,
-            num_classes=11,
-            bbox_coder=dict(
-                type='mmrotate.DeltaXYWHAOBBoxCoder',
-                target_means=[0., 0., 0., 0., 0.],
-                target_stds=[0.1, 0.1, 0.1, 0.1, 0.1]),
-            reg_class_agnostic=True,
-            loss_cls=dict(type='mmdet.CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-            loss_bbox=dict(type='mmdet.SmoothL1Loss', beta=1.0, loss_weight=1.0))),
-    train_cfg=dict(
-        rpn=dict(
-            assigner=dict(
-                type='mmdet.MaxIoUAssigner',
-                pos_iou_thr=0.7,
-                neg_iou_thr=0.3,
-                min_pos_iou=0.3,
-                match_low_quality=True,
-                iou_calculator=dict(type='RBboxOverlaps2D')),
-            sampler=dict(
-                type='mmdet.RandomSampler',
-                num=256,
-                pos_fraction=0.5,
-                neg_pos_ub=-1,
-                add_gt_as_proposals=False),
-            allowed_border=0,
-            pos_weight=-1,
-            debug=False),
-        rpn_proposal=dict(
-            nms_pre=2000,
-            max_per_img=2000,
-            nms=dict(type='nms_rotated', iou_threshold=0.8),
-            min_bbox_size=0),
-        rcnn=dict(
-            assigner=dict(
-                type='mmdet.MaxIoUAssigner',
-                pos_iou_thr=0.5,
-                neg_iou_thr=0.5,
-                min_pos_iou=0.5,
-                match_low_quality=False,
-                ignore_iof_thr=-1,
-                iou_calculator=dict(type='RBboxOverlaps2D')),
-            sampler=dict(
-                type='mmdet.RandomSampler',
-                num=512,
-                pos_fraction=0.25,
-                neg_pos_ub=-1,
-                add_gt_as_proposals=True),
-            pos_weight=-1,
-            debug=False)),
+            angle_range=angle_version,
+            target_means=(.0, .0, .0, .0, .0),
+            target_stds=(1.0, 1.0, 1.0, 1.0, 1.0)),
+        loss_cls=dict(type='FocalLoss', use_sigmoid=True, gamma=2.0, alpha=0.25, loss_weight=1.0),
+        loss_bbox=dict(type='SmoothL1Loss', beta=0.11, loss_weight=1.0)),
     test_cfg=dict(
-        rpn=dict(
-            nms_pre=2000,
-            max_per_img=2000,
-            nms=dict(type='nms_rotated', iou_threshold=0.8),
-            min_bbox_size=0),
-        rcnn=dict(
-            nms_pre=2000,
-            min_bbox_size=0,
-            score_thr=0.05,
-            nms=dict(type='nms_rotated', iou_thr=0.1),
-            max_per_img=2000)))
+        nms_pre=2000,
+        score_thr=0.05,
+        nms=dict(iou_thr=0.1),
+        max_per_img=2000))
 
-# Use pretrained ResNet-50
-load_from = 'https://download.openmmlab.com/mmrotate/v0.1.0/oriented_rcnn/oriented_rcnn_r50_fpn_1x_dota_le135/oriented_rcnn_r50_fpn_1x_dota_le135-6d2fbe54.pth'
+optim_wrapper = dict(optimizer=dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001))
 
-work_dir = 'logs/checkpoints/oriented_rcnn_r50_atrumod'
+work_dir = 'logs/checkpoints/rgb_baseline'

@@ -11,6 +11,9 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+# Monkey-patch mmcv.ops BEFORE any mmrotate import (avoids CUDA _ext DLL crash)
+import atrumod.ops  # noqa: F401
+
 from mmengine.config import Config
 from mmengine.runner import Runner
 from mmengine import ConfigDict
@@ -29,15 +32,18 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # Register all custom modules with MMRotate registries
+    # Register all custom modules
     from atrumod.datasets.atrumod import ATRUMODDataset  # noqa: F401
     from atrumod.datasets.pipelines.loading import LoadRGBIRPair, PackPairedDetInputs  # noqa: F401
     from atrumod.models.backbones.c2former_resnet import C2FormerResNet  # noqa: F401
     from atrumod.models.backbones.ts_resnet import TwoStreamResNet  # noqa: F401
-    from atrumod.models.detectors.two_stream_s2anet import TwoStreamS2ANet  # noqa: F401
+    from atrumod.models.detectors.two_stream_detector import TwoStreamDetector, SingleStreamDetector  # noqa: F401
     from atrumod.models.detectors.dmm_s2anet import DMMS2ANet  # noqa: F401
     from atrumod.models.data_preprocessor import DualInputDataPreprocessor  # noqa: F401
     from atrumod.models.layers.dmm import DCFModule, MTAttentionBlock  # noqa: F401
+    from atrumod.models.heads.rotated_retina_head import RotatedRetinaHead  # noqa: F401
+    from atrumod.models.heads.rotated_anchor_generator import RotatedAnchorGenerator  # noqa: F401
+    from atrumod.models.heads.rotated_bbox_coder import DeltaXYWHAOBBoxCoder  # noqa: F401
 
     cfg = Config.fromfile(args.config)
 

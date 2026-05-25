@@ -9,6 +9,9 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+# Monkey-patch mmcv.ops BEFORE any mmrotate import (avoids CUDA _ext DLL crash)
+import atrumod.ops  # noqa: F401
+
 from mmengine.config import Config
 from mmengine.runner import Runner
 

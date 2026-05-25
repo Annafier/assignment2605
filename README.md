@@ -1,10 +1,10 @@
 # ATR-UMOD — Multimodal Oriented Object Detection
 
-Training & evaluation codebase for UAV-based RGB-IR oriented object detection on the [ATR-UMOD](https://github.com/user-attachments/assets/20679e73-8f60-497e-a086-3b93d932579f) dataset (ICCV 2025). Built on [MMRotate](https://github.com/open-mmlab/mmrotate).
+End-to-end training & evaluation codebase for UAV-based RGB-IR oriented object detection on the [ATR-UMOD](https://github.com/user-attachments/assets/20679e73-8f60-497e-a086-3b93d932579f) dataset (ICCV 2025). Built on **MMEngine + MMDetection** with **zero runtime mmrotate dependency** — all rotated detection ops and heads are self-contained pure PyTorch.
 
 ## Dataset
 
-11,850 aligned RGB-IR image pairs at 640×512 resolution. 11 vehicle classes annotated with **rotated bounding boxes** (cx, cy, w, h, angle) plus polygon corners. Each pair carries 6 condition attributes: UAV altitude, camera angle, weather, illumination, time, and scene location.
+11,850 aligned RGB-IR image pairs at 640×512 resolution. 11 vehicle classes with **rotated bounding boxes** (cx, cy, w, h, angle). Each pair carries 6 condition attributes: UAV altitude, camera angle, weather, illumination, time, scene location.
 
 | Class | car | SUV | van | bus | freight car | truck | motorcycle | trailer | tank truck | excavator | crane |
 |---|-----|-----|-----|-----|---|-----|---|---|---|---|---|
@@ -12,133 +12,145 @@ Training & evaluation codebase for UAV-based RGB-IR oriented object detection on
 
 ### Train / Val Split
 
-Split by **scene location** to prevent same-scene leakage between train and validation:
+Split by **scene location** — no same-scene leakage:
 
-| Split | Locations | Pairs | Scenes |
-|-------|-----------|-------|--------|
-| Train | 0, 1, 3, 5 | 9,921 | Roads, neighborhoods, factories (urban villages & suburbs) |
-| Val | 2, 4, 6, 7, 8, 9, 10 | 1,929 | Schools, parking lots, construction sites, urban center |
+| Split | Locations | Pairs |
+|-------|-----------|-------|
+| Train | 0, 1, 3, 5 | 9,921 |
+| Val | 2, 4, 6, 7, 8, 9, 10 | 1,929 |
 
-## Environment
+## Setup
 
-### Option A — Transfer Pack (exact copy, 2.6 GB archive)
-
-For RTX 50-series GPUs. Unpack on the target machine:
+### Fresh Install
 
 ```bash
-mkdir -p ~/miniconda3/envs/atrumod
-tar -xzf atrumod_env.tar.gz -C ~/miniconda3/envs/atrumod
-cp transfer/mmrotate_init_patched.py \
-  $(~/miniconda3/envs/atrumod/python -c "import mmrotate; print(mmrotate.__path__[0])")/__init__.py
-conda activate ~/miniconda3/envs/atrumod
-pip install -e .
-```
+conda create -n atrumod python=3.10 -y && conda activate atrumod
 
-### Option B — Fresh Install
+# PyTorch — cu121 for pre-Blackwell, cu128 for RTX 50-series
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 
-Requires Python ≥ 3.10, CUDA toolkit, and conda.
-
-```bash
-conda create -n atrumod python=3.10 -y
-conda activate atrumod
-
-# PyTorch — match your CUDA version (cu121 / cu124 / cu128)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-
-# MMRotate stack
-pip install mmengine mmdet mmrotate
-pip install mmcv==2.2.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.4/index.html
-
-# Patch mmrotate version check (needed for mmcv ≥ 2.2.0)
-cp transfer/mmrotate_init_patched.py \
-  $(python -c "import mmrotate; print(mmrotate.__path__[0])")/__init__.py
-
-# Project
-pip install -e .
+# Base stack
+pip install mmengine mmdet mmcv==2.2.0 mmrotate==1.0.0rc1
 pip install tensorboard einops
+
+# Patch version checks (mmcv 2.2 + mmdet 3.3 with mmrotate 1.0.0rc1)
+python -c "
+import mmdet; p=mmdet.__file__.replace('__init__.py','__init__.py')
+f=open(p); c=f.read(); f.close()
+c=c.replace(\"mmcv_maximum_version = '2.2.0'\",\"mmcv_maximum_version = '2.3.0'\")
+open(p,'w').write(c)
+"
+
+# Install project
+pip install -e .
 ```
 
-For RTX 50-series (Blackwell) GPUs, use PyTorch ≥ 2.7 with CUDA 12.8 — see `transfer_setup.sh` for the exact commands.
+### Verify
+
+```bash
+python tools/check_env.py
+```
 
 ## Quick Start
 
 ```bash
-# Verify installation
-python tools/check_env.py
-
-# RGB baseline (fastest, ~6h on RTX 5060)
+# 1. RGB baseline (~6 hours on RTX 5060)
 python tools/train.py configs/oriented_rcnn/oriented_rcnn_r50_atrumod.py
 
-# IR baseline
+# 2. IR baseline
 python tools/train.py configs/oriented_rcnn/oriented_rcnn_r50_atrumod_ir.py
 
-# C2Former multimodal
+# 3. C2Former multimodal
 python tools/train.py configs/c2former/c2former_s2anet_atrumod.py
 
-# DMM multimodal
-python tools/train.py configs/dmm/dmm_s2anet_atrumod.py
-
-# Monitor training
+# 4. Monitor training
 tensorboard --logdir logs/tensorboard
 ```
 
-## Project Structure
+## Architecture
 
 ```
-├── atrumod/                         # Custom package (19 Python modules)
-│   ├── datasets/
-│   │   ├── atrumod.py               # ATRUMODDataset (MMRotate registry)
-│   │   └── pipelines/loading.py     # LoadRGBIRPair, PackPairedDetInputs
-│   └── models/
-│       ├── backbones/
-│       │   ├── resnet_blocks.py     # BasicBlock, Bottleneck (standalone)
-│       │   ├── ts_resnet.py         # TwoStreamResNet (dual RGB+IR stems)
-│       │   └── c2former_resnet.py   # C2Former: ICA cross-attention + AFS
-│       ├── detectors/
-│       │   ├── two_stream_s2anet.py # TwoStreamS2ANet (C2Former detector)
-│       │   └── dmm_s2anet.py        # DMMS2ANet (Mamba-based detector)
-│       ├── layers/dmm/
-│       │   ├── rgbtmamba.py         # DCFModule, DSSM, MTAttentionBlock
-│       │   └── ssm_utils.py         # CrossScan/CrossMerge utilities
-│       └── data_preprocessor.py     # DualInputDataPreprocessor
-├── configs/
-│   ├── _base_/                      # Shared dataset, schedule, runtime
-│   ├── oriented_rcnn/               # RGB & IR single-modality baselines
-│   ├── c2former/                    # C2Former + S2ANet
-│   └── dmm/                         # DMM + S2ANet
-├── tools/
-│   ├── train.py                     # Training entry point
-│   ├── test.py                      # Inference & DOTA evaluation
-│   ├── check_env.py                 # Environment verification
-│   ├── convert_labels.py            # XML → DOTA format
-│   └── visualize.py                 # RGB+IR viewer with ground truth
-├── data/                            # Train: 9,921 / Val: 1,929
-├── transfer/                        # Environment transfer files
-└── logs/                            # TensorBoard + checkpoints per run
+ATR-UMOD/atrumod/
+├── ops/                        # Pure-PyTorch rotated ops (no CUDA compiler needed)
+│   ├── rotated_iou.py          # box_iou_rotated — Sutherland-Hodgman clipping
+│   ├── rotated_nms.py          # nms_rotated, batched_nms
+│   ├── active_rotated_filter.py # ORConv kernel (rotation via grid_sample)
+│   └── deform_conv.py          # DeformConv2d (torchvision delegate)
+│
+├── models/
+│   ├── heads/                  # Self-contained rotated detection heads
+│   │   ├── rotated_retina_head.py       # Full detection head with loss + inference
+│   │   ├── rotated_anchor_generator.py  # Multi-scale rotated anchor generation
+│   │   └── rotated_bbox_coder.py        # DeltaXYWHA encode/decode
+│   │
+│   ├── detectors/
+│   │   ├── two_stream_detector.py  # SingleStreamDetector + TwoStreamDetector
+│   │   ├── two_stream_s2anet.py    # C2Former S2ANet detector (legacy)
+│   │   └── dmm_s2anet.py           # DMM Mamba-based detector
+│   │
+│   ├── backbones/
+│   │   ├── ts_resnet.py         # TwoStreamResNet (dual RGB+IR stems)
+│   │   ├── c2former_resnet.py   # C2Former: ICA cross-attention + AFS (TGRS 2024)
+│   │   └── resnet_blocks.py     # Standalone BasicBlock / Bottleneck
+│   │
+│   └── layers/dmm/
+│       ├── rgbtmamba.py    # DSSM, DCFM, DCFModule, MTAttentionBlock (TGRS 2025)
+│       └── ssm_utils.py    # CrossScan/CrossMerge for RGB-T Mamba
+│
+├── datasets/
+│   ├── atrumod.py            # ATRUMODDataset
+│   └── pipelines/loading.py  # LoadRGBIRPair, PackPairedDetInputs
+│
+configs/
+├── oriented_rcnn/            # RGB & IR single-modality baselines
+├── c2former/                 # C2Former + S2ANet multimodal
+└── dmm/                      # DMM + S2ANet multimodal
 ```
 
 ## Implemented Methods
 
-| # | Method | Config | Venue | Fusion | Backbone |
-|---|--------|--------|-------|--------|----------|
-| 1 | Oriented R-CNN (RGB) | `configs/oriented_rcnn/oriented_rcnn_r50_atrumod.py` | ICCV 2021 | None | ResNet-50 |
-| 2 | Oriented R-CNN (IR) | `configs/oriented_rcnn/oriented_rcnn_r50_atrumod_ir.py` | — | None | ResNet-50 |
-| 3 | **C2Former + S2ANet** | `configs/c2former/c2former_s2anet_atrumod.py` | TGRS 2024 | ICA cross-attention + AFS | Dual ResNet-50 |
-| 4 | **DMM + S2ANet** | `configs/dmm/dmm_s2anet_atrumod.py` | TGRS 2025 | DCFM Mamba + MTAttention | Dual ResNet-50 |
+| # | Method | Config | Venue | Fusion |
+|---|--------|--------|-------|--------|
+| 1 | RetinaNet-OBB (RGB) | `configs/oriented_rcnn/oriented_rcnn_r50_atrumod.py` | — | None |
+| 2 | RetinaNet-OBB (IR) | `configs/oriented_rcnn/oriented_rcnn_r50_atrumod_ir.py` | — | None |
+| 3 | C2Former + S2ANet | `configs/c2former/c2former_s2anet_atrumod.py` | TGRS 2024 | ICA cross-attention + AFS |
+| 4 | DMM + S2ANet | `configs/dmm/dmm_s2anet_atrumod.py` | TGRS 2025 | DCFM Mamba + MTAttention |
+
+All heads use self-contained pure-PyTorch rotated ops — works on Blackwell (RTX 50-series), no CUDA extension compilation required.
 
 ## Evaluation
 
 ```bash
-python tools/test.py configs/c2former/c2former_s2anet_atrumod.py \
-    logs/checkpoints/c2former_s2anet_atrumod/epoch_12.pth
+python tools/test.py configs/oriented_rcnn/oriented_rcnn_r50_atrumod.py \
+    logs/checkpoints/rgb_baseline/epoch_12.pth
 ```
 
-Metrics reported: **rotated mAP@0.5** (DOTA evaluation protocol) over 11 vehicle classes.
+Metrics: rotated mAP@0.5 (DOTA protocol), 11 classes.
+
+## Tools
+
+| Script | Purpose |
+|--------|---------|
+| `tools/train.py` | Training entry (MMEngine Runner, TensorBoard logging) |
+| `tools/test.py` | Inference + evaluation |
+| `tools/check_env.py` | Full environment verification |
+| `tools/convert_labels.py` | XML → DOTA label format |
+| `tools/visualize.py` | RGB+IR viewer with ground truth boxes |
+
+## Transfer
+
+```bash
+# Pack environment for another machine
+conda-pack -n atrumod -o atrumod_env.tar.gz
+
+# Unpack on target
+tar -xzf atrumod_env.tar.gz -C ~/miniconda3/envs/atrumod/
+cp transfer/mmrotate_init_patched.py \
+  $(~/miniconda3/envs/atrumod/python -c "import mmrotate; print(mmrotate.__path__[0])")/__init__.py
+```
 
 ## Attribution
 
-Dataset — *"Fusion Meets Diverse Conditions: A High-diversity Benchmark and Baseline for UAV-based Multimodal Object Detection with Condition Cues"*, ICCV 2025.
-
-C2Former — *"C2Former: Calibrated and Complementary Transformer for RGB-Infrared Object Detection"*, TGRS 2024.
-
-DMM — *"Disparity-guided Multispectral Mamba for RGB-T Object Detection"*, TGRS 2025.
+- Dataset: *"Fusion Meets Diverse Conditions"*, ICCV 2025
+- C2Former: *"Calibrated and Complementary Transformer for RGB-Infrared Object Detection"*, TGRS 2024
+- DMM: *"Disparity-guided Multispectral Mamba for RGB-T Object Detection"*, TGRS 2025
