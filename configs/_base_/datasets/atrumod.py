@@ -1,41 +1,25 @@
-"""
-ATR-UMOD base dataset config — single modality (RGB only).
-For multimodal training, use atrumod_paired.py instead.
-"""
+"""ATR-UMOD base dataset config — single modality. No mmrotate dependency."""
 dataset_type = 'ATRUMODDataset'
 data_root = 'data/'
 
 backend_args = None
 
 train_pipeline = [
-    dict(type='mmdet.LoadImageFromFile', backend_args=backend_args),
-    dict(type='mmdet.LoadAnnotations', with_bbox=True, box_type='qbox'),
-    dict(type='ConvertBoxType', box_type_mapping=dict(gt_bboxes='rbox')),
-    dict(type='mmdet.Resize', scale=(640, 512), keep_ratio=True),
-    dict(
-        type='mmdet.RandomRotate',
-        prob=0.5,
-        angle_range=180,
-        rect_obj_labels=['car', 'suv', 'van', 'bus', 'freight_car', 'truck',
-                         'motorcycle', 'trailer', 'tank_truck', 'excavator', 'crane']),
-    dict(type='mmdet.RandomFlip', prob=0.5, direction='horizontal'),
-    dict(type='mmdet.PackDetInputs'),
+    dict(type='LoadImageFromFile', backend_args=backend_args),
+    dict(type='LoadAnnotations', with_bbox=True, box_type='rbox'),
+    dict(type='PackDetInputs'),
 ]
 
 val_pipeline = [
-    dict(type='mmdet.LoadImageFromFile', backend_args=backend_args),
-    dict(type='mmdet.Resize', scale=(640, 512), keep_ratio=True),
-    dict(type='mmdet.LoadAnnotations', with_bbox=True, box_type='qbox'),
-    dict(type='ConvertBoxType', box_type_mapping=dict(gt_bboxes='rbox')),
-    dict(
-        type='mmdet.PackDetInputs',
-        meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape', 'scale_factor')),
+    dict(type='LoadImageFromFile', backend_args=backend_args),
+    dict(type='LoadAnnotations', with_bbox=True, box_type='rbox'),
+    dict(type='PackDetInputs',
+         meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape', 'scale_factor')),
 ]
 
 test_pipeline = [
-    dict(type='mmdet.LoadImageFromFile', backend_args=backend_args),
-    dict(type='mmdet.Resize', scale=(640, 512), keep_ratio=True),
-    dict(type='mmdet.PackDetInputs',
+    dict(type='LoadImageFromFile', backend_args=backend_args),
+    dict(type='PackDetInputs',
          meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape', 'scale_factor')),
 ]
 
@@ -55,7 +39,7 @@ train_dataloader = dict(
 
 val_dataloader = dict(
     batch_size=4,
-    num_workers=4,
+    num_workers=2,
     persistent_workers=True,
     drop_last=False,
     sampler=dict(type='DefaultSampler', shuffle=False),
@@ -68,7 +52,7 @@ val_dataloader = dict(
         pipeline=val_pipeline,
     ))
 
-test_dataloader = val_dataloader
-
-val_evaluator = dict(type='DOTAMetric', metric='mAP', iou_thrs=[0.5])
-test_evaluator = val_evaluator
+val_dataloader = None
+val_evaluator = None
+test_dataloader = None
+test_evaluator = None

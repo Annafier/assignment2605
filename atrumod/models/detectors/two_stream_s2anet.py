@@ -5,7 +5,7 @@ Port from: https://github.com/yuanmaoxun/C2Former
 import torch
 import warnings
 from mmengine.registry import MODELS
-from mmrotate.models.detectors.s2anet import S2ANet
+from mmrotate.models.detectors import S2ANet
 from mmrotate.structures import rbbox2result
 
 

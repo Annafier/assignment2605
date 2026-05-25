@@ -12,16 +12,17 @@ def _make_fake_ext():
     """Create a fake mmcv._ext module with stubs for ALL CUDA functions
     that mmcv.ops modules try to import. This prevents ImportError
     when mmcv.ops.__init__ loads its submodules."""
+    from importlib.machinery import ModuleSpec
+    from importlib.abc import Loader
+
+    class _FakeLoader(Loader):
+        def create_module(self, spec): return ModuleType(spec.name)
+        def exec_module(self, module): pass
+
     ext = ModuleType('mmcv._ext')
     ext.__file__ = __file__
-    ext.__spec__ = None
-
-    # Each mmcv.ops submodule calls ext_loader.load_ext('_ext', [...])
-    # which does importlib.import_module('mmcv._ext') then getattr for each name.
-    # Return a callable that returns a FakeFunction for any requested name.
-    class _FakeLoader:
-        """Lazy attribute factory — creates fake functions on demand."""
-        pass
+    ext.__spec__ = ModuleSpec('mmcv._ext', _FakeLoader())
+    ext.__loader__ = _FakeLoader()
 
     class _FakeFn:
         """Fake CUDA function that does nothing (actual impl is in our pure-PyTorch ops)."""

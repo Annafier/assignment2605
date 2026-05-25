@@ -10,3 +10,4 @@ wandb/
 *.tar.gz
 .claude/
 =*
+mmrotate/

@@ -4,6 +4,7 @@ Wraps MMRotate's tools/train.py with project-specific setup.
 """
 import argparse
 import os
+import os.path as osp
 import sys
 from pathlib import Path
 
@@ -44,6 +45,7 @@ def main():
     from atrumod.models.heads.rotated_retina_head import RotatedRetinaHead  # noqa: F401
     from atrumod.models.heads.rotated_anchor_generator import RotatedAnchorGenerator  # noqa: F401
     from atrumod.models.heads.rotated_bbox_coder import DeltaXYWHAOBBoxCoder  # noqa: F401
+    from atrumod.structures.rotated_boxes import RotatedBoxes  # noqa: F401
 
     cfg = Config.fromfile(args.config)
 
@@ -74,7 +76,11 @@ def main():
 
     os.makedirs(cfg.work_dir, exist_ok=True)
     print(f'Work dir: {cfg.work_dir}')
-    print(f'Config: {cfg.pretty_text}')
+    print(f'Model: {cfg.model.type}')
+    print(f'Batch size: {cfg.train_dataloader.batch_size}')
+    print(f'Max epochs: {cfg.train_cfg.max_epochs}')
+    # Save full config to work_dir, don't dump to console
+    cfg.dump(osp.join(cfg.work_dir, 'config.py'))
 
     runner = Runner.from_cfg(cfg)
     runner.train()

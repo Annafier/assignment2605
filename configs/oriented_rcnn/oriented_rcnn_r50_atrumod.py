@@ -5,18 +5,31 @@ _base_ = [
     '../_base_/default_runtime.py',
 ]
 
+custom_imports = dict(imports=[
+    'atrumod.ops',
+    'atrumod.datasets.atrumod',
+    'atrumod.models.backbones.ts_resnet',
+    'atrumod.models.backbones.c2former_resnet',
+    'atrumod.models.detectors.two_stream_detector',
+    'atrumod.models.heads.rotated_retina_head',
+    'atrumod.models.heads.rotated_anchor_generator',
+    'atrumod.models.heads.rotated_bbox_coder',
+    'atrumod.models.layers.dmm.rgbtmamba',
+    'atrumod.structures.rotated_boxes',
+], allow_failed_imports=False)
+
 num_classes = 11
 angle_version = 'le135'
 
 model = dict(
     type='SingleStreamDetector',
     data_preprocessor=dict(
-        type='mmdet.DetDataPreprocessor',
+        type='DetDataPreprocessor',
         mean=[123.675, 116.28, 103.53],
         std=[58.395, 57.12, 57.375],
         pad_size_divisor=32),
     backbone=dict(
-        type='mmdet.ResNet',
+        type='ResNet',
         depth=50,
         num_stages=4,
         out_indices=(0, 1, 2, 3),
@@ -56,5 +69,9 @@ model = dict(
         max_per_img=2000))
 
 optim_wrapper = dict(optimizer=dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001))
+
+# Override validation (will be added later)
+val_cfg = None
+test_cfg = None
 
 work_dir = 'logs/checkpoints/rgb_baseline'

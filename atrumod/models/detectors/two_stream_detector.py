@@ -170,11 +170,11 @@ class SingleStreamDetector(BaseDetector):
     def _forward(self, batch_inputs):
         return self.extract_feat(batch_inputs)
 
-    def forward(self, batch_inputs, batch_data_samples=None, mode='tensor'):
+    def forward(self, inputs, data_samples=None, mode='tensor'):
         if mode == 'loss':
-            return self.loss(batch_inputs, batch_data_samples)
+            return self.loss(inputs, data_samples)
         elif mode == 'predict':
-            return self.predict(batch_inputs, batch_data_samples)
+            return self.predict(inputs, data_samples)
         elif mode == 'tensor':
-            return self._forward(batch_inputs)
+            return self._forward(inputs)
         raise RuntimeError(f'Invalid mode "{mode}"')
