@@ -1,0 +1,12 @@
+data/
+logs/
+__pycache__/
+*.pyc
+.venv/
+*.pth
+*.pt
+.DS_Store
+wandb/
+*.tar.gz
+.claude/
+=*
