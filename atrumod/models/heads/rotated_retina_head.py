@@ -23,10 +23,12 @@ class FocalLoss(nn.Module):
         if self.use_sigmoid:
             num_classes = pred.size(1)
             # one-hot with num_classes+1 columns, then drop column 0 (bg)
-            target = F.one_hot(target.clamp(min=0), num_classes + 1).float()[:, 1:]
-            ce = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
-            p_t = pred.sigmoid()
-            alpha_t = target * self.alpha + (1 - target) * (1 - self.alpha)
+            target_onehot = F.one_hot(target.clamp(min=0), num_classes + 1).float()[:, 1:]
+            ce = F.binary_cross_entropy_with_logits(pred, target_onehot, reduction='none')
+            p = pred.sigmoid()
+            # p_t = probability of the CORRECT class
+            p_t = target_onehot * p + (1 - target_onehot) * (1 - p)
+            alpha_t = target_onehot * self.alpha + (1 - target_onehot) * (1 - self.alpha)
             loss = alpha_t * (1 - p_t).pow(self.gamma) * ce
         else:
             ce = F.cross_entropy(pred, target, reduction='none')
