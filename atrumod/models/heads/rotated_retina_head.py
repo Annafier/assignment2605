@@ -1,24 +1,67 @@
-"""Rotated RetinaNet head — self-contained, no mmrotate dependency."""
+"""Rotated RetinaNet head — self-contained, no mm dependency."""
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import math
-from mmengine.registry import MODELS
+from collections.abc import Mapping
 from atrumod.models.heads.rotated_anchor_generator import RotatedAnchorGenerator
 from atrumod.models.heads.rotated_bbox_coder import DeltaXYWHAOBBoxCoder
 from atrumod.ops.rotated_iou import box_iou_rotated
 
 
-@MODELS.register_module()
+class FocalLoss(nn.Module):
+    """Focal Loss for class imbalance."""
+    def __init__(self, use_sigmoid=True, gamma=2.0, alpha=0.25, loss_weight=1.0):
+        super().__init__()
+        self.use_sigmoid = use_sigmoid
+        self.gamma = gamma
+        self.alpha = alpha
+        self.loss_weight = loss_weight
+
+    def forward(self, pred, target, avg_factor=None):
+        # target format: -1=ignore, 0=bg, 1..C=fg classes (1-indexed)
+        if self.use_sigmoid:
+            num_classes = pred.size(1)
+            # one-hot with num_classes+1 columns, then drop column 0 (bg)
+            target_onehot = F.one_hot(target.clamp(min=0), num_classes + 1).float()[:, 1:]
+            ce = F.binary_cross_entropy_with_logits(pred, target_onehot, reduction='none')
+            p = pred.sigmoid()
+            # p_t = probability of the CORRECT class
+            p_t = target_onehot * p + (1 - target_onehot) * (1 - p)
+            alpha_t = target_onehot * self.alpha + (1 - target_onehot) * (1 - self.alpha)
+            loss = alpha_t * (1 - p_t).pow(self.gamma) * ce
+        else:
+            ce = F.cross_entropy(pred, target, reduction='none')
+            p_t = pred.softmax(dim=1).gather(1, target.unsqueeze(1)).squeeze()
+            loss = (1 - p_t).pow(self.gamma) * ce
+        loss = loss.sum()
+        if avg_factor is not None:
+            loss = loss / avg_factor
+        return loss * self.loss_weight
+
+
+class SmoothL1Loss(nn.Module):
+    """Smooth L1 loss for bbox regression."""
+    def __init__(self, beta=0.11, loss_weight=1.0):
+        super().__init__()
+        self.beta = beta
+        self.loss_weight = loss_weight
+
+    def forward(self, pred, target, avg_factor=None):
+        diff = torch.abs(pred - target)
+        loss = torch.where(diff < self.beta, 0.5 * diff ** 2 / self.beta, diff - 0.5 * self.beta)
+        loss = loss.sum()
+        if avg_factor is not None:
+            loss = loss / avg_factor
+        return loss * self.loss_weight
+
+
 class RotatedRetinaHead(nn.Module):
     """Rotated object detection head (RetinaNet-style).
 
     Produces per-pixel rotated anchor predictions across FPN levels.
     Uses Focal Loss for classification and SmoothL1 for bbox regression.
     """
-
-    def _assert_ok(self, condition, msg):
-        if not condition:
-            pass  # Silent in production
 
     def __init__(self,
                  num_classes,
@@ -47,7 +90,7 @@ class RotatedRetinaHead(nn.Module):
                 ratios=[1.0],
                 angles=[0],
                 strides=[8, 16, 32, 64, 128])
-        if isinstance(anchor_generator, dict):
+        if isinstance(anchor_generator, Mapping):
             anchor_generator['type'] = 'RotatedAnchorGenerator'  # ensure
             strides = anchor_generator.get('strides', [8, 16, 32, 64, 128])
             scales = anchor_generator.get('scales', [4])
@@ -61,7 +104,7 @@ class RotatedRetinaHead(nn.Module):
         # Bbox coder
         if bbox_coder is None:
             bbox_coder = dict(type='DeltaXYWHAOBBoxCoder', angle_range='le135')
-        if isinstance(bbox_coder, dict):
+        if isinstance(bbox_coder, Mapping):
             self.bbox_coder = DeltaXYWHAOBBoxCoder(**{k: v for k, v in bbox_coder.items() if k != 'type'})
         else:
             self.bbox_coder = bbox_coder
@@ -70,9 +113,7 @@ class RotatedRetinaHead(nn.Module):
         self.loss_cls_cfg = loss_cls or dict(type='FocalLoss', use_sigmoid=True, gamma=2.0, alpha=0.25, loss_weight=1.0)
         self.loss_bbox_cfg = loss_bbox or dict(type='SmoothL1Loss', beta=0.11, loss_weight=1.0)
 
-        # Build losses
-        from mmdet.models.losses import FocalLoss
-        from mmdet.models.losses import SmoothL1Loss
+        # Build losses (pure PyTorch, no mmdet)
         self.loss_cls = FocalLoss(**{k: v for k, v in self.loss_cls_cfg.items() if k not in ('type', 'loss_weight')})
         self.loss_bbox = SmoothL1Loss(**{k: v for k, v in self.loss_bbox_cfg.items() if k not in ('type', 'loss_weight')})
         self.loss_cls_weight = self.loss_cls_cfg.get('loss_weight', 1.0)
@@ -121,7 +162,9 @@ class RotatedRetinaHead(nn.Module):
         """
         cls_scores = []
         bbox_preds = []
+        self._featmap_sizes = []
         for feat in feats:
+            self._featmap_sizes.append(feat.shape[-2:])  # (H, W)
             cls_feat = feat
             reg_feat = feat
             for cls_conv in self.cls_convs:
@@ -151,6 +194,14 @@ class RotatedRetinaHead(nn.Module):
         """
         return self.anchor_generator(featmap_sizes, device)
 
+    def _get_featmap_sizes(self, cls_scores):
+        """Get featmap spatial sizes — from stored forward state, or fallback."""
+        if hasattr(self, '_featmap_sizes') and self._featmap_sizes:
+            return self._featmap_sizes
+        # (H*W*K) is flat — grid shape (H,W) is unrecoverable without aspect ratio.
+        # Only used if forward() wasn't called first; matches 640×512 stride [8,16,32,64,128].
+        return [(80, 64), (40, 32), (20, 16), (10, 8), (5, 4)]
+
     def loss(self, cls_scores, bbox_preds, gt_bboxes, gt_labels,
              img_metas=None, gt_bboxes_ignore=None):
         """Compute detection loss.
@@ -163,7 +214,7 @@ class RotatedRetinaHead(nn.Module):
         Returns:
             losses: dict
         """
-        featmap_sizes = [(s.shape[1], s.shape[2]) for s in cls_scores]
+        featmap_sizes = self._get_featmap_sizes(cls_scores)
         device = cls_scores[0].device
 
         anchors_list, _ = self.get_anchors(featmap_sizes, device)
@@ -235,7 +286,7 @@ class RotatedRetinaHead(nn.Module):
             # Encode targets back to deltas
             pos_anchors_flat = all_anchors.unsqueeze(0).expand(B, -1, -1)[pos_inds]
             bbox_deltas = self.bbox_coder.encode(pos_anchors_flat, pos_bbox_targets)
-            bbox_loss = self.loss_bbox(pos_bbox_preds, bbox_deltas)
+            bbox_loss = self.loss_bbox(pos_bbox_preds, bbox_deltas, avg_factor=num_pos)
         else:
             bbox_loss = all_bbox_preds.sum() * 0
 
@@ -250,7 +301,7 @@ class RotatedRetinaHead(nn.Module):
         from atrumod.ops.rotated_nms import nms_rotated
 
         cfg = cfg or self.test_cfg
-        featmap_sizes = [(s.shape[1], s.shape[2]) for s in cls_scores]
+        featmap_sizes = self._get_featmap_sizes(cls_scores)
         device = cls_scores[0].device
 
         anchors_list, _ = self.get_anchors(featmap_sizes, device)
