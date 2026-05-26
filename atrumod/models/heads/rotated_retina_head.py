@@ -290,7 +290,7 @@ class RotatedRetinaHead(nn.Module):
             # Encode targets back to deltas
             pos_anchors_flat = all_anchors.unsqueeze(0).expand(B, -1, -1)[pos_inds]
             bbox_deltas = self.bbox_coder.encode(pos_anchors_flat, pos_bbox_targets)
-            bbox_loss = self.loss_bbox(pos_bbox_preds, bbox_deltas)
+            bbox_loss = self.loss_bbox(pos_bbox_preds, bbox_deltas, avg_factor=num_pos)
         else:
             bbox_loss = all_bbox_preds.sum() * 0
 
