@@ -20,15 +20,15 @@ def build_backbone(cfg):
     if bb_type == 'resnet':
         import torchvision.models as tv_models
         depth = bb_cfg.get('depth', 50)
+        pretrained = bb_cfg.get('pretrained', True)
+        weights = 'DEFAULT' if pretrained else None
         if depth == 50:
-            backbone = tv_models.resnet50(weights=None)
+            backbone = tv_models.resnet50(weights=weights)
         elif depth == 101:
-            backbone = tv_models.resnet101(weights=None)
+            backbone = tv_models.resnet101(weights=weights)
         else:
             raise ValueError(f'Unknown resnet depth: {depth}')
-        # Remove FC, keep feature maps
         backbone.fc = torch.nn.Identity()
-        # Wrap to return intermediate features
         return ResNetFeatureWrapper(backbone, out_indices=bb_cfg.get('out_indices', (0, 1, 2, 3)))
 
     elif bb_type == 'two_stream':
