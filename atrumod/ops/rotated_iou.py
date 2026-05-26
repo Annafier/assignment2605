@@ -35,7 +35,7 @@ def box_iou_rotated(boxes1, boxes2, mode='iou', aligned=False):
     da = torch.abs(a1 - a2)
     # Clamp to [-90, 90] degrees then convert to radians
     da = torch.min(da, 180 - da)
-    angle_penalty = torch.cos(da * math.pi / 180.0).clamp(min=0.3)
+    angle_penalty = torch.cos(da * math.pi / 180.0).clamp(min=0.0)
 
     return iou_h * angle_penalty
 

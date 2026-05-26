@@ -66,30 +66,29 @@ class ResNetFeatureWrapper(torch.nn.Module):
         return feats
 
 
+class DetectionModel(torch.nn.Module):
+    """Detection model: backbone + neck + head. Module-level so checkpoint resume works."""
+    def __init__(self, backbone, neck, head):
+        super().__init__()
+        self.backbone = backbone
+        self.neck = neck
+        self.bbox_head = head
+
+    def forward(self, x):
+        feats = self.backbone(x)
+        if self.neck is not None:
+            feats = self.neck(feats)
+        return self.bbox_head(feats)
+
+
 def build_model(cfg):
     """Build detection model from config."""
     backbone = build_backbone(cfg)
-
-    # Build head
     head = RotatedRetinaHead(**cfg.head)
-
-    class Model(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.backbone = backbone
-            self.neck = None
-            if cfg.get('neck'):
-                from atrumod.models.necks.fpn import SimpleFPN
-                self.neck = SimpleFPN(**cfg.neck)
-            self.bbox_head = head
-
-        def forward(self, x):
-            feats = self.backbone(x)
-            if self.neck is not None:
-                feats = self.neck(feats)
-            return self.bbox_head(feats)
-
-    return Model()
+    neck = None
+    if cfg.get('neck'):
+        neck = SimpleFPN(**cfg.neck)
+    return DetectionModel(backbone, neck, head)
 
 
 def main():

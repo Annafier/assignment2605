@@ -198,6 +198,14 @@ class RotatedRetinaHead(nn.Module):
         """
         return self.anchor_generator(featmap_sizes, device)
 
+    def _get_featmap_sizes(self, cls_scores):
+        """Get featmap spatial sizes — from stored forward state, or fallback."""
+        if hasattr(self, '_featmap_sizes') and self._featmap_sizes:
+            return self._featmap_sizes
+        # (H*W*K) is flat — grid shape (H,W) is unrecoverable without aspect ratio.
+        # Only used if forward() wasn't called first; matches 640×512 stride [8,16,32,64,128].
+        return [(80, 64), (40, 32), (20, 16), (10, 8), (5, 4)]
+
     def loss(self, cls_scores, bbox_preds, gt_bboxes, gt_labels,
              img_metas=None, gt_bboxes_ignore=None):
         """Compute detection loss.
@@ -210,7 +218,7 @@ class RotatedRetinaHead(nn.Module):
         Returns:
             losses: dict
         """
-        featmap_sizes = getattr(self, '_featmap_sizes', [(80, 64), (40, 32), (20, 16), (10, 8), (5, 4)])
+        featmap_sizes = self._get_featmap_sizes(cls_scores)
         device = cls_scores[0].device
 
         anchors_list, _ = self.get_anchors(featmap_sizes, device)
@@ -297,7 +305,7 @@ class RotatedRetinaHead(nn.Module):
         from atrumod.ops.rotated_nms import nms_rotated
 
         cfg = cfg or self.test_cfg
-        featmap_sizes = getattr(self, '_featmap_sizes', [(80, 64), (40, 32), (20, 16), (10, 8), (5, 4)])
+        featmap_sizes = self._get_featmap_sizes(cls_scores)
         device = cls_scores[0].device
 
         anchors_list, _ = self.get_anchors(featmap_sizes, device)
