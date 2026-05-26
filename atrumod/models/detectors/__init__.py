@@ -1,1 +1,1 @@
-from .two_stream_detector import TwoStreamDetector, SingleStreamDetector
+from .pure_detectors import SingleStreamDetector, TwoStreamDetector

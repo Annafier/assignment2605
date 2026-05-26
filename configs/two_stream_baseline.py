@@ -1,34 +1,36 @@
-"""RGB baseline config — pure Python, no mm dependency."""
+"""Two-stream RGB+IR multimodal baseline config — pure Python."""
 
 # Data
 data_root = 'data'
 train_ann = 'train/dota_labels'
 train_img = 'train/images'
+train_img_ir = 'train/images_ir'
 val_ann = 'val/dota_labels'
 val_img = 'val/images'
+val_img_ir = 'val/images_ir'
 
 # Training
-batch_size = 8
+batch_size = 4  # dual input uses more VRAM
 num_workers = 8
 max_epochs = 12
-lr = 0.005
+lr = 0.01
 momentum = 0.9
 weight_decay = 0.0001
 lr_milestones = [8, 11]
 lr_gamma = 0.1
 use_amp = True
 log_interval = 5
-work_dir = 'logs/checkpoints/rgb_baseline'
+grad_clip = 35.0
+work_dir = 'logs/checkpoints/two_stream_baseline'
 
-# Backbone — ResNet-50 (ImageNet pretrained)
+# Two-stream backbone — separate RGB and IR ResNet-50 stems
 backbone = dict(
-    type='resnet',
+    type='two_stream',
     depth=50,
     out_indices=(0, 1, 2, 3),
-    pretrained=True,
 )
 
-# Neck
+# Neck (shared FPN on fused features)
 neck = dict(
     in_channels=[256, 512, 1024, 2048],
     out_channels=256,

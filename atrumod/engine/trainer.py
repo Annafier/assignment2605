@@ -58,7 +58,7 @@ class Trainer:
         self.best_loss = float('inf')
 
         if resume is not None:
-            self.start_epoch = load_checkpoint(model, resume, optimizer, scheduler) + 1
+            self.start_epoch = load_checkpoint(model, resume, optimizer, scheduler, self.scaler) + 1
 
     def _to_device(self, batch):
         """Move batch tensors to GPU."""
@@ -69,6 +69,34 @@ class Trainer:
         if isinstance(batch, torch.Tensor):
             return batch.to(self.device)
         return batch
+
+    def _forward_batch(self, batch):
+        """Forward pass handling single, dual, and DMM models."""
+        gt_bboxes = batch['gt_bboxes']
+        gt_labels = batch['gt_labels']
+        is_dual = 'rgb' in batch
+
+        # DMM detector: has forward_train for full training pipeline
+        if hasattr(self.model, 'forward_train') and is_dual:
+            if is_dual:
+                return self.model.forward_train(batch['rgb'], batch['ir'], gt_bboxes, gt_labels)
+            else:
+                return self.model.forward_train(batch['img'], gt_bboxes, gt_labels)
+
+        # Standard detector: forward + head.loss
+        if is_dual:
+            cls_scores, bbox_preds = self.model(batch['rgb'], batch['ir'])
+        else:
+            cls_scores, bbox_preds = self.model(batch['img'])
+        return self.model.bbox_head.loss(cls_scores, bbox_preds, gt_bboxes, gt_labels)
+
+    def _step(self, batch):
+        """Single training step."""
+        batch = self._to_device(batch)
+        with torch.amp.autocast('cuda', enabled=self.use_amp):
+            loss_dict = self._forward_batch(batch)
+            loss = sum(v for v in loss_dict.values() if isinstance(v, torch.Tensor))
+        return loss, loss_dict
 
     def train_epoch(self, epoch):
         """Run one training epoch."""
@@ -81,18 +109,7 @@ class Trainer:
         for i, batch in enumerate(self.train_loader):
             data_time = time.time() - data_start
 
-            batch = self._to_device(batch)
-            images = batch['img']
-            gt_bboxes = batch['gt_bboxes']
-            gt_labels = batch['gt_labels']
-
-            with torch.amp.autocast('cuda', enabled=self.use_amp):
-                cls_scores, bbox_preds = self.model(images)
-                loss_dict = self.model.bbox_head.loss(
-                    cls_scores, bbox_preds, gt_bboxes, gt_labels)
-
-                loss = sum(v for v in loss_dict.values()
-                          if isinstance(v, torch.Tensor))
+            loss, loss_dict = self._step(batch)
 
             if not torch.isfinite(loss):
                 print(f'[WARN] NaN/inf loss at iter {i} — cls={loss_dict.get("loss_cls", 0):.2f} bbox={loss_dict.get("loss_bbox", 0):.2f}')
@@ -146,16 +163,7 @@ class Trainer:
         num_batches = 0
 
         for batch in self.val_loader:
-            batch = self._to_device(batch)
-            images = batch['img']
-            gt_bboxes = batch['gt_bboxes']
-            gt_labels = batch['gt_labels']
-
-            cls_scores, bbox_preds = self.model(images)
-            loss_dict = self.model.bbox_head.loss(
-                cls_scores, bbox_preds, gt_bboxes, gt_labels)
-            loss = sum(v for v in loss_dict.values()
-                      if isinstance(v, torch.Tensor))
+            loss, _ = self._step(batch)
             total_loss += loss.item()
             num_batches += 1
 
@@ -187,7 +195,10 @@ class Trainer:
 
             save_path = self.work_dir / f'epoch_{epoch}.pth'
             save_checkpoint(self.model, self.optimizer, self.scheduler,
-                          epoch, save_path, best=is_best)
+                          self.scaler, epoch, save_path, best=is_best)
 
         self.writer.close()
+        if self._tb_process is not None:
+            self._tb_process.terminate()
+            self._tb_process.wait(timeout=5)
         print(f'Training complete. Best val loss: {self.best_loss:.4f}')

@@ -63,10 +63,6 @@ class RotatedRetinaHead(nn.Module):
     Uses Focal Loss for classification and SmoothL1 for bbox regression.
     """
 
-    def _assert_ok(self, condition, msg):
-        if not condition:
-            pass  # Silent in production
-
     def __init__(self,
                  num_classes,
                  in_channels=256,
