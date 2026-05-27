@@ -152,5 +152,5 @@ cp transfer/mmrotate_init_patched.py \
 ## Attribution
 
 - Dataset: *"Fusion Meets Diverse Conditions"*, ICCV 2025
-- C2Former: *"Calibrated and Complementary Transformer for RGB-Infrared Object Detection"*, TGRS 2024
-- DMM: *"Disparity-guided Multispectral Mamba for RGB-T Object Detection"*, TGRS 2025
+- C2Former: *"Calibrated and Complementary Transformer for RGB-Infrared Object Detection"*, TGRS 2024 https://github.com/yuanmaoxun/C2Former.
+- DMM: *"Disparity-guided Multispectral Mamba for RGB-T Object Detection"*, TGRS 2025 https://github.com/Another-0/DMM
